@@ -1,0 +1,181 @@
+# This is an example workflow going from
+# specifying a crystal structure to
+# constructing part of a phase diagram.
+#
+# It is assumed that CASM v0.2.0 is installed.
+# 
+
+# environment setup, modify as necessary
+source casmenv.sh
+
+# store current directory
+export DEMO=$(pwd)
+
+# example ZrO project input files
+cd $DEMO/ZrO
+casm status -n
+
+### Initialize project
+casm init
+
+### Set composition axes
+casm status -n
+casm composition --select 0
+
+### Enumerate configurations
+casm status -n
+casm enum --supercells --max 4
+casm enum --configs --all
+
+### Enable VESTA visualization,
+# Correct command depends on your system
+# On Mac, often: 'casm.view "open -a /Applications/VESTA/VESTA.app"'
+# On Linux:
+casm settings --set-view-command 'casm.view VESTA'
+casm view SCEL4_2_2_1_0_0_0/12
+
+### Calculate DFT energies
+casm status -n
+casm select --set-on
+
+# set path to VASP pp by changing 'POTCAR_DIR_PATH' variable
+emacs training_data/settings/calctype.default/SPECIES
+
+# set VASP INCAR settings
+emacs training_data/settings/calctype.default/INCAR
+
+# set KPOINTS, either Auto, or 
+# to be scaled to match density determined from
+# training_data/settings/calctype.default/POSCAR
+emacs training_data/settings/calctype.default/KPOINTS
+
+# set cluster submission parameters and convergence criteria
+emacs training_data/settings/calctype.default/relax.json
+
+# setup VASP jobs for manual checking 
+#  (optional, skip if no VASP pseudopotentials)
+casm-calc --setup
+
+# Can't actually submit jobs, would use:
+#   casm-calc --submit
+#   casm update
+# Instead, copy calculation results:
+cp $DEMO/ZrO_data/config_list.json $DEMO/ZrO/.casm/config_list.json
+casm status -d
+
+### Set chemical reference
+casm ref --set-auto
+# Should output:
+# Global chemical reference:
+#  Zr(1): -8.54698
+#  O(0.5)Zr(0.5): -9.0907
+
+
+### Specify basis set
+
+# Modify 'bspecs.json' as desired to specify orbits & basis functions
+#  (for this demo, don't actually change)
+emacs $DEMO/ZrO/basis_sets/bset.default/bspecs.json
+casm bset -u
+
+### Select configurations
+casm select –set 'and(is_calculated,lt(comp(a),0.695))' -o calc_lt_0p7
+
+### Query properties
+casm query -c ALL -k 'scel_size comp'
+casm query -c calc_lt_0p7 -k 'scel_size comp'
+
+### ECI fitting
+
+# Create a directory for fitting work
+cd $DEMO/ZrO/fit_1
+
+# Create new eci setting
+casm settings --new-eci test
+
+# Select structures to fit with
+casm select --set 'lt(comp(a),0.695)' -o all_lt_0p7
+casm select -c all_lt_0p7 --set-off 'not(is_calculated)' -o train
+
+# Create a 'casm-learn' input file
+casm-learn --exGeneticAlgorithm > fit_1_ga.json
+
+# For demo purposes, a quicker calculation will suffice.
+# Change "feature_selection"/"kwargs"/"evolve_params_kwargs"/"n_repetition": 5 or 10
+emacs fit_1_ga.json
+
+# Run 'casm-learn'
+casm-learn -s fit_1_ga.json
+
+# Check results
+casm-learn -s fit_1_ga.json --hall
+casm-learn -s fit_1_ga.json --checkhull --indiv 0
+python plot_hull.py
+
+# Select ECI to use
+casm-learn -s fit_1_ga.json --select 0
+
+### Run Monte Carlo
+
+# semi-grand canonical setup
+cd $DEMO/ZrO/mc/example_grand_canonical
+casm format --monte
+emacs metropolis_grand_canonical.json
+
+# run
+casm monte -s metropolis_grand_canonical.json --verbosity verbose
+
+# check results
+cat results.json
+cat results.csv
+
+# very basic Python script showing how to plot MC data
+python plot.py
+
+### Using provided Monte Carlo results to construct a phase diagram
+
+# For consistency, switch to 'default' ECI provided with demo
+casm settings --set-eci default
+
+# Low temperature expansion to get free energy reference states
+# lte1 setup
+cd $DEMO/ZrO/mc/example_lte1
+emacs lte1_grand_canonical.json
+
+# run
+casm monte -s lte1_grand_canonical.json
+
+# check results
+cat results.csv
+cat results.json
+python plot.py
+
+# An example script for running a coarse grid of Monte Carlo calculations
+cd $DEMO/ZrO/mc/grid
+python run.py
+
+# Use pre-computed fine grid results 
+# This will use the 'lte1' results you just calculated
+cd $DEMO/ZrO/mc/fine_grid
+tar -xzvf results.tar.gz
+python parse.py
+
+
+# The 'plot_vary_T.py' and 'plot_vary_xi.py' scripts "animate" a range of 
+# Monte Carlo calculation paths by repeatedly plotting for a scan of parameters.
+# To see the next plot, close the current one.
+
+# check results for paths with varying T
+python plot_vary_T.py
+python plot_vary_T_all.py
+
+# check results for paths with varying parameteric chemical potential
+python plot_vary_xi.py
+python plot_vary_xi_all.py
+
+# free energy integration
+python free_energy.py
+
+# find phase boundary
+python plot_phi_vary_xi.py
+python plot_boundary_vary_xi.py

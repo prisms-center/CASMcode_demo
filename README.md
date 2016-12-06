@@ -1,2 +1,3 @@
 # CASMcode_demo
-CASM presentations and demonstrations
+
+This repository contains CASM presentations and demonstration materials.
