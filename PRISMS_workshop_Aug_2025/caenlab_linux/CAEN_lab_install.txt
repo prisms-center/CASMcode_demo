@@ -1,8 +1,8 @@
 # ~~ Install ~~
 
-# load python3.11 and gcc/11.3.0
+# load python3.11 and gcc/13.2.1
 module load python/3.11
-module load gcc/11.3.0
+module load gcc/13.2.1
 
 # install casm-project
 git clone https://github.com/prisms-center/CASMcode_project.git
@@ -14,7 +14,8 @@ pip install -r notebooks_requirements.txt
 export PATH=/home/<username>/.local/bin:$PATH
 export CASM_PREFIX=$(python -m libcasm.casmglobal --prefix)
 casm-calc -h
-python -m casm.bset --test
+python -m casm.bset --autoconfigure --shfile casmenv.sh
+source casmenv.sh
 
 # ~~ Launch Jupyter ~~
 jupyter lab
